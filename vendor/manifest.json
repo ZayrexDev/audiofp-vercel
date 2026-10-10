@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/ZayrexDev/api-enhanced",
+  "commit": "2db6684453297ee86dec0492842f2320b08182d9",
+  "path": "public/audio_match_demo",
+  "sha256": {
+    "afp.js": "3776f3122d8a516d716ec00f55c24b919f03a2fb4bb009191007327170d33763",
+    "afp.wasm.js": "4926a6d69527a1afbc7f7d120b9c21947e677d80c484c8b65572fa7d4ce3b99f"
+  }
+}

@@ -1,0 +1,2 @@
+# Preserve the exact hashed vendor bytes across Windows/Linux checkouts.
+vendor/** -text
