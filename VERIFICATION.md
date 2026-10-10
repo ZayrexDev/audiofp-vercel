@@ -1,5 +1,7 @@
 # Verification record — 2026-10-10
 
+Optional-configuration update: 16 tests pass, including a complete HTTP/FFmpeg/WASM request with `VERCEL=1` and all four settings absent. Missing, blank, malformed and partial settings, valid authentication/allowlist enforcement, anonymous Redis quotas and rejected Redis credentials are covered. This is a local simulation of the Vercel environment flag, not a hosted deployment. The Java example still compiles with optional authentication.
+
 Completed locally on Windows x64, Node.js v24.18.1:
 
 - `npm install`: exact production dependencies and lockfile resolved; `npm audit --omit=dev` reported zero known npm vulnerabilities at check time. This does not scan FFmpeg or WASM binaries.
@@ -16,4 +18,4 @@ Not claimed as completed:
 - No live NetEase recognition or song-catalog match. Compatibility means reuse of the exact upstream extractor and verified same-PCM byte equivalence, not a guarantee of recognition of every clip.
 - No comparison asserting byte equivalence between FFmpeg downmix/resampling and browser channel-0 decoding.
 
-Deployment acceptance: run the Linux CI workflow, deploy with all four environment variables, check the traced binary/worker/vendor inclusion and function size, then call the endpoint with a known permitted MP3 and use its returned audioFP and duration in `/audio/match`. Observe latency, peak memory, 429 behavior and failure rates in Vercel before increasing traffic. The README links the current primary documentation used for the feasibility assessment.
+Deployment acceptance: run the Linux CI workflow, deploy with the optional environment variables for the features you want, check the traced binary/worker/vendor inclusion and function size, then call the endpoint with a known permitted MP3 and use its returned audioFP and duration in `/audio/match`. Observe latency, peak memory, 429 behavior and failure rates in Vercel before increasing traffic. The README links the current primary documentation used for the feasibility assessment.

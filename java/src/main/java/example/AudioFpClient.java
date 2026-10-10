@@ -24,9 +24,8 @@ public final class AudioFpClient {
         if (!"https".equalsIgnoreCase(endpoint.getScheme()) || endpoint.getHost() == null
                 || endpoint.getUserInfo() != null || endpoint.getFragment() != null)
             throw new IllegalArgumentException("Use an HTTPS API endpoint");
-        if (apiKey == null || apiKey.length() < 32) throw new IllegalArgumentException("Missing API key");
         this.endpoint = endpoint;
-        this.apiKey = apiKey;
+        this.apiKey = apiKey != null && apiKey.matches("[\\x21-\\x7e]{32,}") ? apiKey : null;
     }
 
     public record Fingerprint(String audioFP, double duration, double startSeconds, String requestId) {}
@@ -47,10 +46,11 @@ public final class AudioFpClient {
             throw new IllegalArgumentException("startSeconds: 0–600; duration: 3–12");
         var body = json.writeValueAsString(Map.of("url", mp3Url.toASCIIString(),
                 "startSeconds", startSeconds, "duration", duration));
-        var request = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(55))
-                .header("Authorization", "Bearer " + apiKey)
+        var builder = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(55))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+                .POST(HttpRequest.BodyPublishers.ofString(body));
+        if (apiKey != null) builder.header("Authorization", "Bearer " + apiKey);
+        var request = builder.build();
         // No automatic retry: honor Retry-After for 429; use bounded retries at the job layer.
         var response = http.send(request, HttpResponse.BodyHandlers.ofString());
         JsonNode root;

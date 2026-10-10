@@ -5,6 +5,7 @@ const { authorize, rateLimit } = require('../lib/security');
 const { download } = require('../lib/download');
 const { decode } = require('../lib/decode');
 const { fingerprint } = require('../lib/fingerprint');
+const { allowedHosts } = require('../lib/config');
 let busy = false;
 async function readBody(req, signal) {
   if (Number(req.headers['content-length']) > 8192) throw new ApiError(413, 'BODY_TOO_LARGE', 'JSON body limit is 8 KiB.');
@@ -38,8 +39,7 @@ module.exports = async function handler(req, res) {
     const keyId = authorize(req.headers.authorization);
     if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) throw new ApiError(415, 'CONTENT_TYPE', 'Use application/json.');
     const input = validate(await readBody(req, controller.signal));
-    const hosts = (process.env.ALLOWED_AUDIO_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    if (!hosts.length) throw new ApiError(503, 'NOT_CONFIGURED', 'Source host allowlist is not configured.');
+    const hosts = allowedHosts();
     await rateLimit(keyId, controller.signal);
     if (busy) throw new ApiError(429, 'BUSY', 'This instance is processing audio. Retry later.');
     busy = true; acquired = true;

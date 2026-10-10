@@ -21,9 +21,9 @@ test('API method, auth, JSON size, input and unsafe URLs', async () => {
     const r=await fetch(base,{method:'POST',headers,body}); assert.equal(r.status,status); const b=await r.json(); assert.ok(b.requestId); assert.ok(b.error.code); assert.equal(r.headers.get('cache-control'),'no-store');
   }
 });
-test('Vercel rate limiter fails closed without Redis configuration', async () => {
+test('Vercel skips optional rate limiter without Redis configuration', async () => {
   process.env.VERCEL='1';
-  await assert.rejects(rateLimit('test',AbortSignal.timeout(1000)),{code:'NOT_CONFIGURED'});
+  await rateLimit('test',AbortSignal.timeout(1000));
   delete process.env.VERCEL;
 });
 test('distributed rate limit command, exhaustion and outage', async t => {
@@ -39,7 +39,10 @@ test('distributed rate limit command, exhaustion and outage', async t => {
     count=null;await assert.rejects(rateLimit('test',AbortSignal.timeout(1000)),{code:'RATE_LIMIT_UNAVAILABLE'});
   } finally {delete process.env.UPSTASH_REDIS_REST_URL;delete process.env.UPSTASH_REDIS_REST_TOKEN;}
 });
-test('complete HTTP pipeline and per-instance busy gate', async t => {
+test('complete HTTP pipeline on Vercel with all settings absent and per-instance busy gate', async t => {
+  const oldKey=process.env.AUDIOFP_API_KEY, oldHosts=process.env.ALLOWED_AUDIO_HOSTS;
+  delete process.env.AUDIOFP_API_KEY; delete process.env.ALLOWED_AUDIO_HOSTS; process.env.VERCEL='1';
+  t.after(()=>{process.env.AUDIOFP_API_KEY=oldKey;process.env.ALLOWED_AUDIO_HOSTS=oldHosts;delete process.env.VERCEL;});
   const { execFileSync } = require('node:child_process');
   const { EventEmitter } = require('node:events');
   const { Readable } = require('node:stream');
@@ -51,7 +54,7 @@ test('complete HTTP pipeline and per-instance busy gate', async t => {
     const req=new EventEmitter();req.setTimeout=()=>{};
     release=()=>{const res=Readable.from([mp3]);res.statusCode=200;res.headers={};callback(res);};arrived();return req;
   });
-  const options={method:'POST',headers:{Authorization:`Bearer ${process.env.AUDIOFP_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({url:'https://cdn.example.com/a.mp3',duration:4})};
+  const options={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://cdn.example.com/a.mp3',duration:4})};
   const first=fetch(base,options);await waiting;
   const second=await fetch(base,options);assert.equal(second.status,429);assert.equal((await second.json()).error.code,'BUSY');
   release();const response=await first;assert.equal(response.status,200);const body=await response.json();

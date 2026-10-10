@@ -1,1 +1,1 @@
-oStella AudioFP API. POST JSON to /api/audiofp with a configured bearer token.
+oStella AudioFP API. POST JSON to /api/audiofp. A bearer token is required only when authentication is configured.

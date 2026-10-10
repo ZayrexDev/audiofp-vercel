@@ -12,7 +12,7 @@ Content-Type: application/json
 {"url":"https://your-cdn.example/music.mp3","startSeconds":0,"duration":10}
 ```
 
-Only `url` is required. Unknown fields are rejected. Numeric values must be JSON numbers.
+The Authorization header is required only when a valid `AUDIOFP_API_KEY` is configured. Only `url` is required. Unknown fields are rejected. Numeric values must be JSON numbers.
 
 | Setting | Default | Limit |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ Only `url` is required. Unknown fields are rejected. Numeric values must be JSON
 | Whole request | — | 45 seconds from handler entry |
 | Vercel maxDuration | 60 seconds | Leaves termination/response headroom |
 | Per-instance processing | 1 | Concurrent requests receive 429 BUSY |
-| Distributed quota | 20 | Requests per API key per 60-second window |
+| Distributed quota (optional) | 20 | Requests per API key per 60-second window; one shared bucket without authentication |
 
 Success (the fingerprint value below is illustrative):
 
@@ -49,26 +49,26 @@ The MP3 is downloaded fully before decoding. Seeking uses output-side FFmpeg `-s
 
 1. Put this directory at a Git repository root, including `package-lock.json`, `vendor/`, `lib/`, `api/`, `scripts/`, and `vercel.json`. Do not commit `node_modules`, `.env`, `.vercel`, or Java `target`.
 2. Import it in Vercel. Choose **Other** as the framework, **Node.js 24.x**, and enable **Fluid compute**. The configuration supplies `npm ci`, `npm run build`, `static` as output directory, a 60-second function duration, and explicit worker/vendor/FFmpeg inclusion. If used inside a monorepo, select this directory as Root Directory.
-3. Create an Upstash Redis database and set its REST URL/token, preferably in a region near the function. This is the shared limiter across Vercel instances; an in-memory counter would not enforce the deployment-wide quota.
-4. Set the following environment variables for each deployment environment you use, then deploy:
+3. Optionally create an Upstash Redis database and set its REST URL/token, preferably in a region near the function. This is the shared limiter across Vercel instances; an in-memory counter would not enforce the deployment-wide quota.
+4. All four environment variables are optional, on Vercel and locally. Configure only the features you want, then deploy:
 
 | Variable | Value |
 | --- | --- |
-| `AUDIOFP_API_KEY` | A random secret of at least 32 characters; generate with the command below |
-| `ALLOWED_AUDIO_HOSTS` | Comma-separated exact source hostnames and redirect hostnames, e.g. `cdn.example.com,media.example.com` |
-| `UPSTASH_REDIS_REST_URL` | Your Upstash HTTPS REST URL |
-| `UPSTASH_REDIS_REST_TOKEN` | Its REST token with EVAL/INCR/EXPIRE access |
+| `AUDIOFP_API_KEY` | Enables authentication when it contains at least 32 printable ASCII characters without whitespace; otherwise authentication is skipped |
+| `ALLOWED_AUDIO_HOSTS` | Optional comma-separated exact DNS hostnames, e.g. `cdn.example.com,media.example.com`; invalid entries are ignored, and no valid entries means no host allowlist |
+| `UPSTASH_REDIS_REST_URL` | Optional HTTPS REST origin (no credentials, path, query, fragment or nonstandard port); requires a valid token |
+| `UPSTASH_REDIS_REST_TOKEN` | Optional nonempty printable ASCII token without whitespace, with EVAL/INCR/EXPIRE access; requires a valid REST URL |
 
 ```sh
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-Allowlist your actual trusted audio CDN domains. No wildcard, suffix match, scheme, port, or path belongs in this setting. A presigned HTTPS URL is supported, and its query remains intact. Only admit hosts whose audio you intend the service to fetch. The service does not forward client credentials, cookies, arbitrary headers, or its API token to the source.
+When using the allowlist, supply your actual trusted audio CDN domains. No wildcard, suffix match, scheme, port, or path belongs in this setting. A presigned HTTPS URL is supported, and its query remains intact. Only admit hosts whose audio you intend the service to fetch. The service does not forward client credentials, cookies, arbitrary headers, or its API token to the source.
 
 The build explicitly runs the pinned `ffmpeg-static` installer, checks vendor hashes, executes `ffmpeg -version`, and checks binary size. This covers npm versions that block dependency install scripts. Vercel must have build-time access to GitHub release downloads. Installation chooses the build platform's binary; **never upload Windows `node_modules` as a prebuilt Linux deployment**. Do not set `FFMPEG_BIN` in Vercel unless you also package and validate that custom executable.
 
 5. Check build logs for the Linux FFmpeg version and byte count, and inspect the resulting function bundle. Verify it contains `lib/wasm-worker.js`, both vendor JS files, and the Linux `node_modules/ffmpeg-static/ffmpeg` executable. The application is designed for the standard sub-250 MB path; no large-function beta is needed for the expected binary size. The build's 200 MiB check is a binary budget, not a measurement of Vercel's final traced bundle.
-6. Smoke-test a real allowed MP3 using the request below. Check the returned Base64 and duration with your existing `/audio/match` backend and a known catalog recording. Also verify 401 without the bearer token and 400 for an unallowed source.
+6. Smoke-test a real allowed MP3 using the request below. Check the returned Base64 and duration with your existing `/audio/match` backend and a known catalog recording. When authentication is enabled, verify 401 without the bearer token; when the allowlist is enabled, verify 400 for an unallowed source. Omit the Authorization header in the example below if authentication is disabled.
 
 ```sh
 curl --fail-with-body https://YOUR_PROJECT.vercel.app/api/audiofp \
@@ -77,7 +77,7 @@ curl --fail-with-body https://YOUR_PROJECT.vercel.app/api/audiofp \
   --data '{"url":"https://YOUR_ALLOWED_CDN/song.mp3","startSeconds":15,"duration":10}'
 ```
 
-Preview deployments may have Vercel Deployment Protection enabled. Authenticate through that layer or use a configured production endpoint; its HTML/401 response happens before this API. Keep the application bearer token enabled either way. Use Vercel Firewall controls and spend alerts to bound unauthorized invocation traffic; rejected requests can still incur platform cost.
+Preview deployments may have Vercel Deployment Protection enabled. Authenticate through that layer or use a configured production endpoint; its HTML/401 response happens before this API. Use Vercel Firewall controls and spend alerts to bound unauthorized invocation traffic; rejected requests can still incur platform cost.
 
 ## Local development
 
@@ -89,7 +89,7 @@ npm run build
 npm test
 ```
 
-Copy `.env.example` to `.env`, fill in the API key and host allowlist, then run `npm start`. Local address: `http://127.0.0.1:3000/api/audiofp`. The Redis quota is skipped only when Redis credentials are absent **and** `VERCEL` is unset; authentication, SSRF controls, and the instance gate still apply. Supply Redis credentials locally to exercise the real limiter. Never expose the local development server publicly.
+Run `npm start` with no environment variables, or copy `.env.example` to `.env` to enable optional features. Local address: `http://127.0.0.1:3000/api/audiofp`. Missing or invalid configuration skips only the related feature, identically locally and on Vercel. SSRF checks, processing limits and the instance gate always apply.
 
 ## oStella Java integration
 
@@ -110,7 +110,7 @@ var fp = client.generate(URI.create(sourceMp3Url), 0, 10);
 var matchBody = Map.of("audioFP", fp.audioFP(), "duration", fp.duration());
 ```
 
-Set `AUDIOFP_ENDPOINT=https://YOUR_PROJECT.vercel.app/api/audiofp`. Reuse the client and run the blocking call on a background executor. Preserve interruption when catching `InterruptedException`. The client makes one attempt: queue and retry 429 using Retry-After with a bounded job policy; avoid retrying invalid input and authentication failures. Do not log source signed URLs or the API key. Java response bodies may be platform-generated HTML on failures; these map to `PLATFORM_ERROR`.
+Set `AUDIOFP_ENDPOINT=https://YOUR_PROJECT.vercel.app/api/audiofp`. The Java client accepts a null or invalid API key and omits the Authorization header in that case. Reuse the client and run the blocking call on a background executor. Preserve interruption when catching `InterruptedException`. The client makes one attempt: queue and retry 429 using Retry-After with a bounded job policy; avoid retrying invalid input and authentication failures. Do not log source signed URLs or the API key. Java response bodies may be platform-generated HTML on failures; these map to `PLATFORM_ERROR`.
 
 ## Compatibility and runtime design
 
@@ -129,8 +129,8 @@ The upstream [browser demo](https://github.com/ZayrexDev/api-enhanced/blob/2db66
 - No automatic HTTP decompression. Both declared and streamed byte counts are bounded. Source MIME headers are not trusted as proof of MP3; FFmpeg must successfully decode it.
 - FFmpeg is spawned without a shell and with pipe-only protocols and a forced MP3 demuxer. It cannot retrieve a playlist's URL or local file. No audio is written to disk. Decoding runs in a child process; WASM runs in a worker so its synchronous work cannot block the parent deadline timer.
 - The whole-request deadline includes JSON read, Redis, DNS, download, decode and fingerprint. Abort kills FFmpeg and terminates the worker; client disconnect also cancels work when visible to the handler. The timeout does not govern upload time spent in Vercel before invocation.
-- The per-instance gate protects shared WASM and CPU, but is not a global concurrency guarantee. Upstash's atomic INCR/EXPIRE script enforces the 20-per-60-second fixed-window quota across instances. At window boundaries bursts remain possible. Use a job queue if you need strict global concurrency or steady throughput.
-- API responses use `Cache-Control: no-store`; no browser CORS access is enabled. Logs contain only request ID, error code and status. Production Redis outages and missing required settings fail closed.
+- The per-instance gate protects shared WASM and CPU, but is not a global concurrency guarantee. Upstash's atomic INCR/EXPIRE script enforces the 20-per-60-second fixed-window quota across instances when Redis is configured. With authentication disabled, all callers share the anonymous bucket, independent of supplied Authorization headers. At window boundaries bursts remain possible. Use a job queue if you need strict global concurrency or steady throughput.
+- API responses use `Cache-Control: no-store`; no browser CORS access is enabled. Logs contain only request ID, error code and status. Missing or malformed Redis settings skip the optional quota. Redis HTTP 401/403 credential rejections also skip it. Network failures, timeouts, unexpected responses and other server errors still return 503 when Redis is configured.
 - `npm audit` covers JavaScript dependencies, not vulnerabilities in the downloaded FFmpeg binary or opaque WASM. Review/pin upgraded binaries separately and rerun compatibility tests. `ffmpeg-static` 5.3.0 currently pins a 6.1.1 binary release; package version and FFmpeg version are distinct.
 
 Errors use `{"error":{"code":"...","message":"..."},"requestId":"..."}`. No raw stack traces, decoder output or upstream bodies are returned.
@@ -144,7 +144,7 @@ Errors use `{"error":{"code":"...","message":"..."},"requestId":"..."}`. No raw 
 | 429 | BUSY (Retry-After 2), RATE_LIMITED (Retry-After 60) |
 | 500 | DECODER_UNAVAILABLE, FP_RUNTIME_FAILED |
 | 502 | SOURCE_HTTP, TOO_MANY_REDIRECTS, PROCESSING_FAILED |
-| 503 | NOT_CONFIGURED, RATE_LIMIT_UNAVAILABLE |
+| 503 | RATE_LIMIT_UNAVAILABLE |
 | 504 | TIMEOUT, SOURCE_TIMEOUT |
 
 Vercel can produce its own errors before/after the handler, including payload and platform timeouts. Clients must tolerate non-JSON failures.
