@@ -1,6 +1,8 @@
 # oStella AudioFP on Vercel
 
-A bounded Node.js API that downloads an MP3, selects a clip, decodes it to 8,000 Hz mono little-endian float32 PCM, and returns the Base64 fingerprint from the original NetEase `shazam_v2` WASM. No Python, browser, GraalVM, or standalone WASI runtime is needed.
+A bounded Node.js API that downloads MP3 or Ogg audio, selects a clip, decodes it to 8,000 Hz mono little-endian float32 PCM, and returns the Base64 fingerprint from the original NetEase `shazam_v2` WASM. No Python, browser, GraalVM, or standalone WASI runtime is needed.
+
+Audio format is detected from the bytes, not the URL extension. For example, some osu! preview URLs ending in `.mp3` actually serve Ogg Vorbis. Only the MP3 and Ogg demuxers are enabled; playlists and other containers remain blocked. A decoding failure and a successfully decoded clip shorter than three seconds return distinct messages under `INVALID_AUDIO`.
 
 ## API
 
@@ -43,7 +45,7 @@ Success (the fingerprint value below is illustrative):
 
 `duration` is the actual decoded sample count divided by 8,000, in **seconds**. Near EOF it can be shorter than requested; fewer than three seconds is rejected. Pass the returned duration together with `audioFP` to api-enhanced `/audio/match`. Do not Base64-encode the string again. If manually constructing a query string, URL-encode the Base64; JSON serialization does not need that transformation.
 
-The MP3 is downloaded fully before decoding. Seeking uses output-side FFmpeg `-ss`, so samples before the selection are decoded and discarded. Long offsets can exhaust the time budget. Byte-range fetching cannot reliably locate arbitrary time offsets in VBR MP3 and is deliberately omitted.
+The source is downloaded fully before decoding. Seeking uses output-side FFmpeg `-ss`, so samples before the selection are decoded and discarded. Long offsets can exhaust the time budget. Byte-range fetching cannot reliably locate arbitrary time offsets in VBR MP3 and is deliberately omitted.
 
 ## Deploy
 
@@ -126,8 +128,8 @@ The upstream [browser demo](https://github.com/ZayrexDev/api-enhanced/blob/2db66
 
 - HTTPS only, port 443, no URL credentials, fragments or IP literals. URL canonicalization happens before allowlist checks.
 - Every redirect is checked again. DNS must return only globally routable addresses. IPv4 private/link-local/loopback/CGNAT/multicast/reserved addresses and IPv6 local/mapped/transition/reserved ranges are rejected. IPv6 is further restricted to global unicast space. The validated address is pinned via the connection's lookup callback while preserving TLS hostname verification and SNI; DNS is not resolved a second time by the socket.
-- No automatic HTTP decompression. Both declared and streamed byte counts are bounded. Source MIME headers are not trusted as proof of MP3; FFmpeg must successfully decode it.
-- FFmpeg is spawned without a shell and with pipe-only protocols and a forced MP3 demuxer. It cannot retrieve a playlist's URL or local file. No audio is written to disk. Decoding runs in a child process; WASM runs in a worker so its synchronous work cannot block the parent deadline timer.
+- No automatic HTTP decompression. Both declared and streamed byte counts are bounded. Source MIME headers and filename extensions are not trusted as proof of format; FFmpeg must successfully decode the bytes as MP3 or Ogg.
+- FFmpeg is spawned without a shell and with pipe-only protocols and an MP3/Ogg demuxer allowlist. It cannot retrieve a playlist's URL or local file. No audio is written to disk by the API. Decoding runs in a child process; WASM runs in a worker so its synchronous work cannot block the parent deadline timer.
 - The whole-request deadline includes JSON read, Redis, DNS, download, decode and fingerprint. Abort kills FFmpeg and terminates the worker; client disconnect also cancels work when visible to the handler. The timeout does not govern upload time spent in Vercel before invocation.
 - The per-instance gate protects shared WASM and CPU, but is not a global concurrency guarantee. Upstash's atomic INCR/EXPIRE script enforces the 20-per-60-second fixed-window quota across instances when Redis is configured. With authentication disabled, all callers share the anonymous bucket, independent of supplied Authorization headers. At window boundaries bursts remain possible. Use a job queue if you need strict global concurrency or steady throughput.
 - API responses use `Cache-Control: no-store`; no browser CORS access is enabled. Logs contain only request ID, error code and status. Missing or malformed Redis settings skip the optional quota. Redis HTTP 401/403 credential rejections also skip it. Network failures, timeouts, unexpected responses and other server errors still return 503 when Redis is configured.

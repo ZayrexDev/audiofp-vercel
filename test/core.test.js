@@ -36,8 +36,18 @@ test('MP3 decode, selection, repeatable WASM reuse and upstream equivalence', as
   const { GenerateFP } = require('../vendor/afp');
   assert.equal(a, await GenerateFP(floats));
   assert.ok(Buffer.from(a,'base64').length > 0);
-  await assert.rejects(decode(Buffer.from('not mp3'), 0, 4, signal), {code:'INVALID_AUDIO'});
-  await assert.rejects(decode(mp3, 20, 4, signal), {code:'INVALID_AUDIO'});
+  await assert.rejects(decode(Buffer.from('not mp3'), 0, 4, signal), {code:'INVALID_AUDIO',message:'Could not decode source audio. Supported formats: MP3 and Ogg.'});
+  await assert.rejects(decode(mp3, 20, 4, signal), {code:'INVALID_AUDIO',message:'Audio must contain at least three seconds after startSeconds.'});
+});
+test('Ogg Vorbis previews decode regardless of URL suffix; other containers remain blocked', async () => {
+  const signal = AbortSignal.timeout(15000);
+  const ogg = execFileSync(ffmpeg, ['-v','error','-f','lavfi','-i','sine=frequency=660:sample_rate=44100:duration=5','-ac','2','-c:a','libvorbis','-f','ogg','pipe:1'], {windowsHide:true});
+  assert.equal(ogg.subarray(0,4).toString(),'OggS');
+  const pcm = await decode(ogg, 1, 4, signal);
+  assert.equal(pcm.length,4*8000*4);
+  assert.ok(Buffer.from(await fingerprint(pcm,signal),'base64').length);
+  const wav = execFileSync(ffmpeg, ['-v','error','-f','lavfi','-i','sine=duration=4','-f','wav','pipe:1'], {windowsHide:true});
+  await assert.rejects(decode(wav,0,4,signal),{code:'INVALID_AUDIO',message:'Could not decode source audio. Supported formats: MP3 and Ogg.'});
 });
 test('aborted worker request cleans up and later request succeeds', async () => {
   const pcm = Buffer.alloc(8000 * 12 * 4);

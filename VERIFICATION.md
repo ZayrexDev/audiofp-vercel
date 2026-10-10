@@ -1,5 +1,7 @@
 # Verification record — 2026-10-10
 
+Ogg preview fix: 17 tests pass, including generated stereo Ogg Vorbis, selection/resampling, fingerprint generation and rejection of unsupported WAV input. Downloaded `https://b.ppy.sh/preview/320118.mp3` for diagnosis: ffprobe identified Ogg Vorbis, 44.1 kHz stereo, 10.1 seconds. The previous forced-MP3 decoder reproduced `INVALID_AUDIO`; after format detection was restricted to MP3/Ogg, the same bytes decoded to 10 seconds of 8 kHz mono PCM and produced a 2,608-byte fingerprint. This was verified locally, not in a new Vercel deployment.
+
 Optional-configuration update: 16 tests pass, including a complete HTTP/FFmpeg/WASM request with `VERCEL=1` and all four settings absent. Missing, blank, malformed and partial settings, valid authentication/allowlist enforcement, anonymous Redis quotas and rejected Redis credentials are covered. This is a local simulation of the Vercel environment flag, not a hosted deployment. The Java example still compiles with optional authentication.
 
 Completed locally on Windows x64, Node.js v24.18.1:
